@@ -8,6 +8,10 @@ var BACKEND_CONFIG_URLS=[
 ];
 var REQUEST_TIMEOUT_MS=8000;
 var API='';
+var SITE=new URLSearchParams(location.search).get('site')||'';
+if(!/^[a-f0-9]{24}$/.test(SITE))return;
+function unavailable(){document.title='404';document.body.innerHTML='<main style="padding:15vh 20px;text-align:center"><h1>404</h1><p>页面不存在</p></main>';}
+
 var plans=[];
 var freeVisible=false;
 var selectedPlan=0;
@@ -19,19 +23,20 @@ function esc(s){return String(s==null?'':s).replace(/[&<>"']/g,function(c){retur
 function fetchJson(url,opt){
   opt=opt||{};
   opt.cache="no-store";
-  var request=fetch(url,opt).then(function(r){return r.json().then(function(d){if(!r.ok)throw new Error(d.message||('HTTP '+r.status));return d;});});
+  var request=fetch(url,opt).then(function(r){return r.json().then(function(d){if(!r.ok){var err=new Error(d.message||('HTTP '+r.status));err.code=d.code;throw err;}return d;});});
   if(opt.method==='POST')return request;
   return new Promise(function(resolve,reject){var timer=setTimeout(function(){reject(new Error('连接超时'));},REQUEST_TIMEOUT_MS);request.then(function(d){clearTimeout(timer);resolve(d);},function(e){clearTimeout(timer);reject(e);});});
 }
 function post(path,data){
+  data.site=SITE;
   return fetchJson(API+path,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});
 }
 function tryBackend(list,i){
   if(i>=list.length) return Promise.reject(new Error('所有后台地址都连接失败'));
   var base=String(list[i]||'').replace(/\/+$/,'');
-  return fetchJson(base+'/api/health.php?t='+Date.now())
+  return fetchJson(base+'/api/health.php?site='+encodeURIComponent(SITE)+'&t='+Date.now())
     .then(function(){API=base;return base;})
-    .catch(function(){return tryBackend(list,i+1);});
+    .catch(function(e){if(e.code==='SITE_NOT_FOUND')throw e;return tryBackend(list,i+1);});
 }
 function loadRemoteConfig(index){
   if(index>=BACKEND_CONFIG_URLS.length)return Promise.reject(new Error('主、备用配置及后台均连接失败'));
@@ -40,13 +45,14 @@ function loadRemoteConfig(index){
   return fetchJson(url+(url.indexOf('?')<0?'?':'&')+'t='+Date.now()).then(function(cfg){
     if(!cfg || !Array.isArray(cfg.backends) || !cfg.backends.length)throw new Error('后台配置格式无效');
     return tryBackend(cfg.backends,0);
-  }).then(function(){return fetchJson(API+'/api/public_config.php?t='+Date.now());}).then(function(d){
+  }).then(function(){return fetchJson(API+'/api/public_config.php?site='+encodeURIComponent(SITE)+'&t='+Date.now());}).then(function(d){
     if(!d || d.ok===false || !Array.isArray(d.plans))throw new Error('后台配置接口不可用');
     return d;
-  }).catch(function(){return loadRemoteConfig(index+1);});
+  }).catch(function(e){if(e.code==='SITE_NOT_FOUND')throw e;return loadRemoteConfig(index+1);});
 }
 function load(){
   loadRemoteConfig(0).then(function(d){
+    document.documentElement.classList.add('site-valid');
     el('siteName').textContent=String(d.site_name||'兑换码购买中心').replace(/兑换码/g,'兑换码');
     document.title=el('siteName').textContent;
     notice=d.notice||notice;
@@ -59,7 +65,8 @@ function load(){
     var order=qs.get('order');
     if(order){location.hash='query';showPage('query');el('queryText').value=order;}
   }).catch(function(e){
-    el('plans').innerHTML='<div class="muted">系统连接失败：'+esc(e.message)+'</div>';
+    if(e.code==='SITE_NOT_FOUND'){unavailable();return;}
+    document.getElementById('site-gate').textContent='分站验证失败，请刷新重试。';
   });
 }
 function flagOn(v){return v===true || v===1 || v==='1';}
@@ -73,7 +80,7 @@ function applyFreeSettings(d){
 }
 function refreshFreeSettings(){
   if(!API || document.hidden)return;
-  fetchJson(API+'/api/public_config.php?t='+Date.now()).then(applyFreeSettings).catch(function(){});
+  fetchJson(API+'/api/public_config.php?site='+encodeURIComponent(SITE)+'&t='+Date.now()).then(applyFreeSettings).catch(function(e){if(e.code==='SITE_NOT_FOUND')unavailable();});
 }
 window.addEventListener('focus',refreshFreeSettings);
 document.addEventListener('visibilitychange',refreshFreeSettings);
@@ -107,7 +114,7 @@ el('buyBtn').onclick=function(){
   post('/api/create_order.php',{plan_id:selectedPlan,contact:contact,pay_type:payType})
     .then(function(d){
       if(!d.ok) throw new Error(d.message||'创建订单失败');
-      try{localStorage.setItem('last_order_no',d.order_no);}catch(e){}
+      try{localStorage.setItem('last_order_no_'+SITE,d.order_no);}catch(e){}
       alert('请保存订单号：'+d.order_no+'，查询订单时只需填写完整订单号。');
       location.href=d.pay_url;
     }).catch(function(e){alert(e.message);btn.disabled=false;btn.textContent='立即购买';});
