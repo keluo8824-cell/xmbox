@@ -1,12 +1,14 @@
 (function(){
 'use strict';
 if(window.__REDEEM_APP_READY__)return;
+window.__REDEEM_APP_VERSION__='multisite-fast-v2';
 // 远程 JSON 主、备用地址只在此处配置。
 var BACKEND_CONFIG_URLS=[
  'https://gh-proxy.org/https://raw.githubusercontent.com/keluo8824-cell/xmbox/refs/heads/main/js/backend.json',
- 'https://cdn.jsdelivr.net/gh/keluo8824-cell/xmbox@refs/heads/main/js/backend.json'
+ 'https://cdn.jsdelivr.net/gh/keluo8824-cell/xmbox@main/js/backend.json',
+ 'http://bbs.vdj666.com/source/simple_card_system/frontend/backend.json'
 ];
-var REQUEST_TIMEOUT_MS=8000;
+var REQUEST_TIMEOUT_MS=5000;
 var API='';
 var SITE=new URLSearchParams(location.search).get('site')||'';
 if(!/^[a-f0-9]{24}$/.test(SITE))return;
@@ -31,27 +33,37 @@ function post(path,data){
   data.site=SITE;
   return fetchJson(API+path,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});
 }
-function tryBackend(list,i){
-  if(i>=list.length) return Promise.reject(new Error('所有后台地址都连接失败'));
-  var base=String(list[i]||'').replace(/\/+$/,'');
-  return fetchJson(base+'/api/health.php?site='+encodeURIComponent(SITE)+'&t='+Date.now())
-    .then(function(){API=base;return base;})
-    .catch(function(e){if(e.code==='SITE_NOT_FOUND')throw e;return tryBackend(list,i+1);});
+// Resolve with the first complete, valid response; losing GET requests never change API.
+function firstSuccess(tasks){
+ return new Promise(function(resolve,reject){
+  var left=tasks.length,lastError=null,siteError=null;
+  if(!left){reject(new Error('没有可用地址'));return;}
+  tasks.forEach(function(task){Promise.resolve().then(task).then(resolve,function(e){
+   lastError=e;if(e.code==='SITE_NOT_FOUND')siteError=e;
+   if(--left===0)reject(siteError||lastError);
+  });});
+ });
 }
-function loadRemoteConfig(index){
-  if(index>=BACKEND_CONFIG_URLS.length)return Promise.reject(new Error('主、备用配置及后台均连接失败'));
-  var url=String(BACKEND_CONFIG_URLS[index]||'');
-  if(!/^https?:\/\//i.test(url))return loadRemoteConfig(index+1);
+function loadRemoteConfig(){
+ var seen={};
+ return firstSuccess(BACKEND_CONFIG_URLS.map(function(url){return function(){
   return fetchJson(url+(url.indexOf('?')<0?'?':'&')+'t='+Date.now()).then(function(cfg){
-    if(!cfg || !Array.isArray(cfg.backends) || !cfg.backends.length)throw new Error('后台配置格式无效');
-    return tryBackend(cfg.backends,0);
-  }).then(function(){return fetchJson(API+'/api/public_config.php?site='+encodeURIComponent(SITE)+'&t='+Date.now());}).then(function(d){
-    if(!d || d.ok===false || !Array.isArray(d.plans))throw new Error('后台配置接口不可用');
-    return d;
-  }).catch(function(e){if(e.code==='SITE_NOT_FOUND')throw e;return loadRemoteConfig(index+1);});
+   if(!cfg||!Array.isArray(cfg.backends)||!cfg.backends.length)throw new Error('后台配置格式无效');
+   return firstSuccess(cfg.backends.map(function(base){return function(){
+    base=String(base||'').replace(/\/+$/,'');
+    if(!/^https?:\/\//i.test(base)||/\.example\.com(?:[/:]|$)/i.test(base))throw new Error('后台地址未配置');
+    if(location.protocol==='https:'&&/^http:/i.test(base))throw new Error('HTTPS前台需要HTTPS后台入口');
+    if(!seen[base])seen[base]=fetchJson(base+'/api/public_config.php?site='+encodeURIComponent(SITE)+'&t='+Date.now()).then(function(d){
+     if(!d||d.ok!==true||!Array.isArray(d.plans))throw new Error('分站内容无效');
+     return {base:base,data:d};
+    });
+    return seen[base];
+   };}));
+  });
+ };})).then(function(result){API=result.base;return result.data;});
 }
 function load(){
-  loadRemoteConfig(0).then(function(d){
+  loadRemoteConfig().then(function(d){
     document.documentElement.classList.add('site-valid');
     el('siteName').textContent=String(d.site_name||'兑换码购买中心').replace(/兑换码/g,'兑换码');
     document.title=el('siteName').textContent;
@@ -66,7 +78,7 @@ function load(){
     if(order){location.hash='query';showPage('query');el('queryText').value=order;}
   }).catch(function(e){
     if(e.code==='SITE_NOT_FOUND'){unavailable();return;}
-    document.getElementById('site-gate').textContent='分站验证失败，请刷新重试。';
+    document.getElementById('site-gate').textContent='分站加载失败：'+e.message;
   });
 }
 function flagOn(v){return v===true || v===1 || v==='1';}
