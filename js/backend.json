@@ -1,0 +1,6 @@
+{
+  "backends": [
+    "https://api1.example.com/card/backend",
+    "https://api2.example.com/card/backend"
+  ]
+}
