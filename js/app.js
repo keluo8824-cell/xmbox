@@ -3,7 +3,7 @@
 if(window.__REDEEM_APP_READY__)return;
 // 远程 JSON 主、备用地址只在此处配置。
 var BACKEND_CONFIG_URLS=[
- 'http://bbs.vdj666.com/source/simple_card_system/frontend/backend.json',
+ 'https://gh-proxy.org/https://raw.githubusercontent.com/keluo8824-cell/xmbox/refs/heads/main/js/backend.json',
  'https://backup.example.com/backend.json'
 ];
 var REQUEST_TIMEOUT_MS=8000;
