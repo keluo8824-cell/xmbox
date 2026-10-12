@@ -6,7 +6,7 @@ window.__REDEEM_APP_VERSION__='multisite-fast-v2';
 var BACKEND_CONFIG_URLS=[
  'https://gh-proxy.org/https://raw.githubusercontent.com/keluo8824-cell/xmbox/refs/heads/main/js/backend.json',
  'https://cdn.jsdelivr.net/gh/keluo8824-cell/xmbox@main/js/backend.json',
- 'http://bbs.vdj666.com/source/simple_card_system/frontend/backend.json'
+ 'https://lq520.cn/var/IXR/backend.json'
 ];
 var REQUEST_TIMEOUT_MS=5000;
 var API='';
