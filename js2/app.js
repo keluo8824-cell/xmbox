@@ -65,8 +65,7 @@ function loadRemoteConfig(){
 function load(){
   loadRemoteConfig().then(function(d){
     document.documentElement.classList.add('site-valid');
-    el('siteName').textContent=String(d.site_name||'兑换码购买中心').replace(/兑换码/g,'兑换码');
-    document.title=el('siteName').textContent;
+    document.title=String(d.site_name||'兑换码购买中心');
     notice=d.notice||notice;
     plans=d.plans||[];
     el('homeNotice').textContent=d.home_notice||'';
