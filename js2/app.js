@@ -4,12 +4,14 @@ if(window.__REDEEM_APP_READY__)return;
 window.__REDEEM_APP_VERSION__='multisite-fast-v3';
 // 远程 JSON 主、备用地址只在此处配置。
 var BACKEND_CONFIG_URLS=[
- 'https://gh-proxy.org/https://raw.githubusercontent.com/keluo8824-cell/xmbox/refs/heads/main/js2/backend.json',
- 'https://cdn.jsdelivr.net/gh/keluo8824-cell/xmbox@main/js2/backend.json',
- 'https://lq520.cn/var/Typecho/Http/backend.json'
+ 'https://gh-proxy.org/https://raw.githubusercontent.com/keluo8824-cell/xmbox/refs/heads/main/js/backend.json',
+ 'https://cdn.jsdelivr.net/gh/keluo8824-cell/xmbox@main/js/backend.json',
+ 'http://bbs.vdj666.com/source/simple_card_system/frontend/backend.json'
 ];
 var REQUEST_TIMEOUT_MS=5000;
 var API='';
+var CONFIG_CACHE_KEY='redeem_public_config_v4_';
+var BACKEND_CACHE_KEY='redeem_last_backend_v4_';
 var SITE=new URLSearchParams(location.search).get('site')||'';
 if(!/^(?:[a-f0-9]{24}|[a-z][0-9]{2})$/.test(SITE))return;
 function unavailable(){document.title='404';document.body.innerHTML='<main style="padding:15vh 20px;text-align:center"><h1>404</h1><p>页面不存在</p></main>';}
@@ -44,9 +46,33 @@ function firstSuccess(tasks){
   });});
  });
 }
+// 只缓存公开展示信息，按分站隔离；订单与支付永不缓存。
+function readCachedConfig(){
+ try{
+  var item=JSON.parse(localStorage.getItem(CONFIG_CACHE_KEY+SITE)||'null');
+  if(item&&item.time>Date.now()-120000&&item.data&&item.data.ok===true&&Array.isArray(item.data.plans)&&/^https:\/\//i.test(item.base))return item;
+ }catch(e){}
+ return null;
+}
+function writeCachedConfig(data){
+ try{if(API&&/^https:\/\//i.test(API)){
+  localStorage.setItem(CONFIG_CACHE_KEY+SITE,JSON.stringify({time:Date.now(),base:API,data:data}));
+  localStorage.setItem(BACKEND_CACHE_KEY+SITE,API);
+ }}catch(e){}
+}
+function renderPrimary(data){
+ // 套餐与公告不依赖导航、图文、免费领取功能；单个出错不阻塞其他模块。
+ try{plans=Array.isArray(data.plans)?data.plans:[];renderPlans();}catch(e){console.error('套餐渲染失败',e);el('plans').textContent='套餐显示异常，请刷新后重试';}
+ try{var message=String(data.home_notice||'');el('homeNotice').textContent=message;el('homeNoticeBox').hidden=!message;}catch(e){console.error('公告渲染失败',e);}
+}
 function loadRemoteConfig(){
  var seen={};
- return firstSuccess(BACKEND_CONFIG_URLS.map(function(url){return function(){
+ // 上次成功的 HTTPS 后台先行验证，远程 JSON 仍并行核实。
+ var tasks=[];
+ try{var last=localStorage.getItem(BACKEND_CACHE_KEY+SITE);
+  if(last&&/^https:\/\//i.test(last))tasks.push(function(){return fetchJson(last+'/api/public_config.php?site='+encodeURIComponent(SITE)+'&t='+Date.now()).then(function(d){if(!d||d.ok!==true||!Array.isArray(d.plans))throw new Error('分站内容无效');return {base:last,data:d};});});
+ }catch(e){}
+ tasks=tasks.concat(BACKEND_CONFIG_URLS.map(function(url){return function(){
   return fetchJson(url+(url.indexOf('?')<0?'?':'&')+'t='+Date.now()).then(function(cfg){
    if(!cfg||!Array.isArray(cfg.backends)||!cfg.backends.length)throw new Error('后台配置格式无效');
    return firstSuccess(cfg.backends.map(function(base){return function(){
@@ -60,43 +86,59 @@ function loadRemoteConfig(){
     return seen[base];
    };}));
   });
- };})).then(function(result){API=result.base;return result.data;});
+ };}));
+ return firstSuccess(tasks).then(function(result){API=result.base;return result.data;});
 }
 function load(){
+  var cached=readCachedConfig();
+  if(cached){
+   API=cached.base;
+   document.documentElement.classList.add('site-valid');
+   renderPrimary(cached.data);
+   try{renderSecondary(cached.data);}catch(e){console.error('缓存配置显示异常',e);}
+  }
   loadRemoteConfig().then(function(d){
     document.documentElement.classList.add('site-valid');
-    document.title=String(d.site_name||'兑换码购买中心');
-    notice=d.notice||notice;
-    plans=d.plans||[];
-    el('homeNotice').textContent=d.home_notice||'';
-    el('homeNoticeBox').hidden=!d.home_notice;
-    el('contactBox').hidden=d.contact_visible===false;
-    el('contactLabel').textContent=d.contact_label||'2. 订单查询信息（选填）';
-    el('contact').placeholder=d.contact_placeholder||'输入手机号码、QQ或任意查询号码（选填）';
-    var nav=el('mainNav');Array.prototype.forEach.call(nav.querySelectorAll('.extra-nav'),function(n){n.remove();});
-    (Array.isArray(d.nav_categories)?d.nav_categories:[]).forEach(function(c){
-      if(!c||!c.name)return;
-      var allowed=['home','tutorial','query','free','agent'];
-      if(c.target==='external'&&!/^https?:\/\//i.test(c.url||''))return;
-      if(c.target!=='external'&&allowed.indexOf(c.target)<0)return;
-      var a=document.createElement('a');a.className='extra-nav';a.textContent=c.name;
-      a.href=c.target==='external'?c.url:'#'+c.target;
-      if(c.target!=='external')a.dataset.page=c.target;
-      if(c.target==='external'){a.target='_blank';a.rel='noopener noreferrer';}
-      nav.appendChild(a);
-    });
-    renderPlans();
-    renderContent('tutorial',d.tutorial);renderContent('agent',d.agent);
-    applyFreeSettings(d);
-    showPage(location.hash.slice(1)||'home');
-    var qs=new URLSearchParams(location.search);
-    var order=qs.get('order');
-    if(order){location.hash='query';showPage('query');el('queryText').value=order;}
+    renderPrimary(d); // 先显示套餐、公告，再处理其他页面设置
+    try{renderSecondary(d);}catch(e){console.error('其他模块渲染失败',e);}
+    writeCachedConfig(d);
   }).catch(function(e){
-    if(e.code==='SITE_NOT_FOUND'){unavailable();return;}
-    document.getElementById('site-gate').textContent='分站加载失败：'+e.message;
+    if(e.code==='SITE_NOT_FOUND'){try{localStorage.removeItem(CONFIG_CACHE_KEY+SITE);localStorage.removeItem(BACKEND_CACHE_KEY+SITE);}catch(_){}unavailable();return;}
+    if(!cached){document.getElementById('site-gate').textContent='分站加载失败：'+e.message;}
+    else console.warn('使用最近公开配置，后台刷新失败：'+e.message);
   });
 }
+function renderSecondary(d){
+  document.title=String(d.site_name||'兑换码购买中心');
+  notice=d.notice||notice;
+  try{
+   el('contactBox').hidden=d.contact_visible===false;
+   el('contactLabel').textContent=d.contact_label||'2. 订单查询信息（选填）';
+   el('contact').placeholder=d.contact_placeholder||'输入手机号码、QQ或任意查询号码（选填）';
+  }catch(e){console.error('联系方式设置异常',e);}
+  try{
+   var nav=el('mainNav');Array.prototype.forEach.call(nav.querySelectorAll('.extra-nav'),function(n){n.remove();});
+   (Array.isArray(d.nav_categories)?d.nav_categories:[]).forEach(function(c){
+    if(!c||!c.name)return;
+    var allowed=['home','tutorial','query','free','agent'];
+    if(c.target==='external'&&!/^https?:\/\//i.test(c.url||''))return;
+    if(c.target!=='external'&&allowed.indexOf(c.target)<0)return;
+    var a=document.createElement('a');a.className='extra-nav';a.textContent=c.name;
+    a.href=c.target==='external'?c.url:'#'+c.target;
+    if(c.target!=='external')a.dataset.page=c.target;
+    if(c.target==='external'){a.target='_blank';a.rel='noopener noreferrer';}
+    nav.appendChild(a);
+   });
+  }catch(e){console.error('导航菜单异常',e);}
+  try{renderContent('tutorial',d.tutorial);renderContent('agent',d.agent);}catch(e){console.error('教程/代理渲染异常',e);}
+  try{applyFreeSettings(d);}catch(e){console.error('免费设置异常',e);}
+  try{
+   showPage(location.hash.slice(1)||'home');
+   var order=new URLSearchParams(location.search).get('order');
+   if(order){location.hash='query';showPage('query');el('queryText').value=order;}
+  }catch(e){console.error('页面导航异常',e);}
+}
+
 function flagOn(v){return v===true || v===1 || v==='1';}
 function applyFreeSettings(d){
   freeVisible=flagOn(d.free_visible);
