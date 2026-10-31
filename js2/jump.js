@@ -1,7 +1,7 @@
 (function () {
     // 多个备用域名
     var domains = [
-        "https://www.a.com/",
+        "https://www.zmts2020.com/",
         "https://www.b.com/",
         "https://www.c.com/",
         "https://www.d.com/"
