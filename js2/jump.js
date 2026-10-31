@@ -2,8 +2,8 @@
     // 多个备用域名
     var domains = [
         "https://www.zmts2020.com/",
-        "https://www.zmts2020.com/",
-        "https://www.zmts2020.com/",
+        "https://yczhiyu.com/",
+        "https://yczhiyu.com/",
         "https://www.zmts2020.com/"
     ];
 
