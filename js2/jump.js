@@ -1,15 +1,20 @@
+```javascript
 (function () {
-    // 多个备用域名
+    // 只配置3个域名
     var domains = [
-        "https://www.zmts2020.com/",
-        "https://yczhiyu.com/",
-        "https://yczhiyu.com/",
-        "https://www.zmts2020.com/"
+        "https://www.a.com",
+        "https://www.b.com",
+        "https://www.c.com"
     ];
 
     // 随机选择一个域名
-    var index = Math.floor(Math.random() * domains.length);
+    var index = Math.floor(Math.random() * 3);
+    var target = domains[index];
 
-    // 执行跳转
-    window.location.replace(domains[index]);
+    // 保留原访问路径和参数
+    target += location.pathname + location.search + location.hash;
+
+    // 立即跳转
+    location.replace(target);
 })();
+```
